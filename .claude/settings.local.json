@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mvn --version)",
+      "Bash(mvn package *)",
+      "Bash(rm -f target/csv-out/*.csv)",
+      "Bash(java -jar target/parquet-to-csv-1.0.0.jar src/main/resources/part-00000-a9e77425-5fb4-456f-ba52-f821123bd193-c000.snappy.parquet -o target/csv-out --overwrite)"
+    ]
+  }
+}

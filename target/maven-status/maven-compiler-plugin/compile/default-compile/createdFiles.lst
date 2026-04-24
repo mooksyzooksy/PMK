@@ -1,0 +1,12 @@
+com\tizitec\parquet2csv\ParquetConverter$1.class
+com\tizitec\parquet2csv\Main.class
+com\tizitec\parquet2csv\ProgressLogger.class
+META-INF\native-image\picocli-generated\com.tizitec\parquet-to-csv\reflect-config.json
+META-INF\native-image\picocli-generated\com.tizitec\parquet-to-csv\resource-config.json
+META-INF\native-image\picocli-generated\com.tizitec\parquet-to-csv\proxy-config.json
+com\tizitec\parquet2csv\ConvertCommand.class
+com\tizitec\parquet2csv\LocalInputFile$NioSeekableInputStream.class
+com\tizitec\parquet2csv\ParquetConverter.class
+com\tizitec\parquet2csv\ConversionConfig.class
+com\tizitec\parquet2csv\ParquetConverter$ConversionResult.class
+com\tizitec\parquet2csv\LocalInputFile.class

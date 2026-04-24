@@ -1,0 +1,29 @@
+[
+  {
+    "name" : "com.tizitec.parquet2csv.ConvertCommand",
+    "allDeclaredConstructors" : true,
+    "allPublicConstructors" : true,
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true,
+    "fields" : [
+      { "name" : "delimiter" },
+      { "name" : "inputs" },
+      { "name" : "nullValue" },
+      { "name" : "outputDir" },
+      { "name" : "overwrite" },
+      { "name" : "progressInterval" },
+      { "name" : "skipComplex" }
+    ]
+  },
+  {
+    "name" : "picocli.CommandLine$AutoHelpMixin",
+    "allDeclaredConstructors" : true,
+    "allPublicConstructors" : true,
+    "allDeclaredMethods" : true,
+    "allPublicMethods" : true,
+    "fields" : [
+      { "name" : "helpRequested" },
+      { "name" : "versionRequested" }
+    ]
+  }
+]

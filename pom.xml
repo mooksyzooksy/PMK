@@ -1,0 +1,202 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             https://maven.apache.org/xsd/maven-4.0.0.xsd">
+
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>com.tizitec</groupId>
+    <artifactId>parquet-to-csv</artifactId>
+    <version>1.0.0</version>
+    <packaging>jar</packaging>
+
+    <name>parquet-to-csv</name>
+    <description>Generic CLI tool to convert Parquet files to CSV using PicoCLI</description>
+
+    <properties>
+        <java.version>21</java.version>
+        <maven.compiler.source>21</maven.compiler.source>
+        <maven.compiler.target>21</maven.compiler.target>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+
+        <picocli.version>4.7.6</picocli.version>
+        <parquet.version>1.14.3</parquet.version>
+        <hadoop.version>3.4.1</hadoop.version>
+        <commons-csv.version>1.12.0</commons-csv.version>
+        <slf4j.version>2.0.13</slf4j.version>
+        <logback.version>1.5.8</logback.version>
+
+        <maven-compiler-plugin.version>3.13.0</maven-compiler-plugin.version>
+        <maven-shade-plugin.version>3.6.0</maven-shade-plugin.version>
+    </properties>
+
+    <dependencies>
+
+        <!-- ═══════════════════════════════════
+             CLI
+             ═══════════════════════════════════ -->
+        <dependency>
+            <groupId>info.picocli</groupId>
+            <artifactId>picocli</artifactId>
+            <version>${picocli.version}</version>
+        </dependency>
+
+        <!-- ═══════════════════════════════════
+             Parquet
+             parquet-hadoop excludes everything so its own shaded
+             Jackson is not interfered with. parquet-column provides
+             the low-level column/page reading API.
+             hadoop-common and hadoop-mapreduce-client-core must be on
+             the classpath because parquet-hadoop imports their classes
+             (HadoopParquetConfiguration, FileInputFormat etc.) even
+             in local-file code paths. We pull them in with all their
+             own heavy transitive deps excluded.
+             ═══════════════════════════════════ -->
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-hadoop</artifactId>
+            <version>${parquet.version}</version>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-column</artifactId>
+            <version>${parquet.version}</version>
+        </dependency>
+
+        <!-- Shaded Jackson used internally by parquet-hadoop to read the
+             file footer (ParquetMetadata). Must be added back explicitly
+             because the *:* exclusion above strips it. -->
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-jackson</artifactId>
+            <version>${parquet.version}</version>
+        </dependency>
+
+        <!-- Hadoop stubs — classes must be loadable, but we exclude
+             all of their own transitive deps to keep the JAR lean -->
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-common</artifactId>
+            <version>${hadoop.version}</version>
+            <exclusions>
+                <exclusion><groupId>org.apache.hadoop</groupId><artifactId>hadoop-auth</artifactId></exclusion>
+                <exclusion><groupId>org.apache.zookeeper</groupId><artifactId>zookeeper</artifactId></exclusion>
+                <exclusion><groupId>org.apache.kerby</groupId><artifactId>*</artifactId></exclusion>
+                <exclusion><groupId>com.sun.jersey</groupId><artifactId>*</artifactId></exclusion>
+                <exclusion><groupId>javax.servlet</groupId><artifactId>*</artifactId></exclusion>
+                <exclusion><groupId>org.eclipse.jetty</groupId><artifactId>*</artifactId></exclusion>
+                <exclusion><groupId>org.apache.curator</groupId><artifactId>*</artifactId></exclusion>
+            </exclusions>
+        </dependency>
+
+        <dependency>
+            <groupId>org.apache.hadoop</groupId>
+            <artifactId>hadoop-mapreduce-client-core</artifactId>
+            <version>${hadoop.version}</version>
+            <exclusions>
+                <exclusion><groupId>*</groupId><artifactId>*</artifactId></exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- ═══════════════════════════════════
+             CSV writing
+             ═══════════════════════════════════ -->
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-csv</artifactId>
+            <version>${commons-csv.version}</version>
+        </dependency>
+
+        <!-- ═══════════════════════════════════
+             Logging
+             ═══════════════════════════════════ -->
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>slf4j-api</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>ch.qos.logback</groupId>
+            <artifactId>logback-classic</artifactId>
+            <version>${logback.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.slf4j</groupId>
+            <artifactId>log4j-over-slf4j</artifactId>
+            <version>${slf4j.version}</version>
+        </dependency>
+
+    </dependencies>
+
+    <build>
+        <plugins>
+
+            <!-- Compiler with PicoCLI annotation processor -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>${maven-compiler-plugin.version}</version>
+                <configuration>
+                    <source>${java.version}</source>
+                    <target>${java.version}</target>
+                    <annotationProcessorPaths>
+                        <path>
+                            <groupId>info.picocli</groupId>
+                            <artifactId>picocli-codegen</artifactId>
+                            <version>${picocli.version}</version>
+                        </path>
+                    </annotationProcessorPaths>
+                    <compilerArgs>
+                        <arg>-Aproject=${project.groupId}/${project.artifactId}</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
+
+            <!-- Fat JAR -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <version>${maven-shade-plugin.version}</version>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                        <exclude>META-INF/LICENSE*</exclude>
+                                        <exclude>META-INF/NOTICE*</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <transformers>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>com.tizitec.parquet2csv.Main</mainClass>
+                                </transformer>
+                                <transformer implementation="org.apache.maven.plugins.shade.resource.ServicesResourceTransformer"/>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+
+        </plugins>
+    </build>
+
+</project>
