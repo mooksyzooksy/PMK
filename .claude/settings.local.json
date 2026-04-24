@@ -4,7 +4,25 @@
       "Bash(mvn --version)",
       "Bash(mvn package *)",
       "Bash(rm -f target/csv-out/*.csv)",
-      "Bash(java -jar target/parquet-to-csv-1.0.0.jar src/main/resources/part-00000-a9e77425-5fb4-456f-ba52-f821123bd193-c000.snappy.parquet -o target/csv-out --overwrite)"
+      "Bash(java -jar target/parquet-to-csv-1.0.0.jar src/main/resources/part-00000-a9e77425-5fb4-456f-ba52-f821123bd193-c000.snappy.parquet -o target/csv-out --overwrite)",
+      "Bash(awk 'BEGIN{e=1}{if\\($1+0!=e\\){print \"MISSING:\",e;while\\(e<$1+0\\){e++;if\\(e==$1+0\\)break;print \"MISSING:\",e}}e=$1+0+1}END{if\\(e<=1000\\)print \"MISSING tail from\",e,\"to 1000\"}')",
+      "Bash(grep -E \"^com/fasterxml/jackson/databind/\\(ObjectMapper|node/\\(ObjectNode|ArrayNode|TextNode|IntNode\\)\\)\\\\.class$\")",
+      "Bash(grep -E \"schema/\\(LogicalTypeAnnotation|GroupType|PrimitiveType\\)\\\\$?.*\\\\.class$\")",
+      "Bash(jar tf *)",
+      "Bash(awk -F/ '{print $1\"/\"$2}')",
+      "Bash(\"C:/Program Files/Java/jdk-21/bin/jar\" tf target/parquet-to-csv-1.0.0.jar)",
+      "Bash(mvn dependency:tree -q)",
+      "Bash(mvn dependency:tree)",
+      "Bash(mvn clean *)",
+      "Bash(\"C:/Program Files/Java/jdk-21/bin/javac\" -cp \"../parquet-to-csv-1.0.0.jar\" GenerateComplexParquet.java)",
+      "Bash(\"C:/Program Files/Java/jdk-21/bin/java\" -cp \"../parquet-to-csv-1.0.0.jar;.\" GenerateComplexParquet complex-test.parquet)",
+      "Bash(mvn dependency:build-classpath -q -Dmdep.outputFile=target/cp.txt)",
+      "Bash(java -jar target/parquet-to-csv-1.0.0.jar target/complex-fixtures -o target/complex-out --overwrite)",
+      "Bash(grep -Ev \"WARNING|^$\")",
+      "Bash(rm -rf target/complex-out)",
+      "Bash(mkdir -p target/complex-out)",
+      "Bash(java -jar target/parquet-to-csv-1.0.0.jar complex-fixtures -o target/complex-out --overwrite)",
+      "Bash(python -c ' *)"
     ]
   }
 }

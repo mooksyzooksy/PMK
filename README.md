@@ -2,10 +2,11 @@
 
 A generic CLI tool to convert Parquet files to CSV, built with Java 21 and PicoCLI.
 
-Any Parquet schema is supported — primitive fields map directly to CSV columns, nested/complex
-fields (structs, arrays, maps) are emitted as Parquet's own `Group.toString()` text
-representation (quote-escaped for CSV safety), or skipped entirely with `--skip-complex`
-for faster flat-data extraction.
+Any Parquet schema is supported — primitive fields map directly to CSV columns, and
+nested/complex fields (structs, LIST, MAP) are emitted as compact JSON in a single CSV
+cell, with Parquet's `LIST`/`MAP` schema wrappers unwrapped so the JSON reflects the
+user-intended shape (`["red","blue"]`, not `{"list":[{"element":"red"},…]}`). Use
+`--skip-complex` to drop complex columns entirely for faster flat-data extraction.
 
 No Hadoop runtime, no `HADOOP_HOME`, no `winutils.exe` — file I/O is pure Java NIO via
 a custom `LocalInputFile`, so the fat JAR runs anywhere Java 21 runs.
@@ -16,6 +17,11 @@ a custom `LocalInputFile`, so the fat JAR runs anywhere Java 21 runs.
 
 - Java 21+
 - Maven 3.8+ (to build)
+- A UTF-8 capable terminal for the log banner icons (`┌─`, `│`, `✔`, `✘`).
+  Logs are emitted as UTF-8 unconditionally; on **modern Windows Terminal,
+  PowerShell 7, macOS, and Linux** this works out of the box. On legacy
+  `cmd.exe` run `chcp 65001` once before launching the JAR, or pipe the
+  output through a UTF-8-aware pager.
 
 ---
 
@@ -80,8 +86,10 @@ java -jar parquet-to-csv-1.0.0.jar file.parquet -o /output \
 
 ## Type mapping
 
-The converter works directly at the Parquet physical-type level — it does **not**
-decode logical-type annotations. Values come through as their underlying representation.
+Primitive Parquet physical types are written as typed strings. Complex types
+(struct, LIST, MAP) are serialized as **compact JSON in a single CSV cell**,
+with Parquet's `LIST`/`MAP` schema wrappers unwrapped so the JSON reflects the
+user-intended shape, not Parquet's storage layout.
 
 | Parquet physical type           | CSV output                                                       |
 |---------------------------------|------------------------------------------------------------------|
@@ -94,21 +102,25 @@ decode logical-type annotations. Values come through as their underlying represe
 | `BINARY` (raw bytes / decimal)  | Parquet's textual representation via `group.getValueToString()`  |
 | `FIXED_LEN_BYTE_ARRAY`          | Textual representation via `group.getValueToString()`            |
 | `INT96` (legacy timestamp)      | Parquet's textual representation via `group.getValueToString()`  |
-| **Group / RECORD / struct**     | **`Group.toString()` text, quote-escaped for CSV** (or skipped)  |
-| **LIST / repeated group**       | **`Group.toString()` text, quote-escaped for CSV** (or skipped)  |
-| **MAP**                         | **`Group.toString()` text, quote-escaped for CSV** (or skipped)  |
-| null / missing optional field   | Configured `--null-value` (default: empty)                       |
+| **Struct / RECORD**             | **JSON object** — `{"street":"Main St","city":"NYC"}`            |
+| **LIST**                        | **JSON array** — `["red","blue"]` (3-level and 2-level layouts)  |
+| **MAP**                         | **JSON object** — `{"env":"prod","region":"eu"}`                 |
+| null / missing optional field   | Top-level: configured `--null-value`; inside JSON: `null`        |
+
+Primitive values inside JSON keep their types — `INT32`/`INT64`/`FLOAT`/`DOUBLE` become JSON numbers,
+`BOOLEAN` becomes a JSON boolean, everything else becomes a JSON string. Nested complex types
+recurse, so a list of structs produces `[{"id":1,"name":"..."},{"id":2,"name":"..."}]`.
 
 > **Logical types are not decoded.** A `DATE` column (stored as `INT32`) emits
 > days-since-epoch as an integer, not an ISO-8601 string. A `TIMESTAMP_MILLIS`
 > column emits raw epoch millis, not a formatted datetime. A `DECIMAL(p,s)`
 > column emits its underlying physical bytes or integer, not a precision-aware
 > decimal string. If you need logical-type interpretation, post-process the CSV
-> or extend `serializePrimitive(...)` in `ParquetConverter`.
+> or extend `primitiveToString(...)` in `ParquetConverter`.
 
-> Use `--skip-complex` to drop RECORD, LIST, and MAP columns entirely instead of
-> serializing their Parquet text representation. Useful when you only need flat
-> scalar data and want maximum throughput.
+> Use `--skip-complex` to drop struct/LIST/MAP columns entirely instead of
+> emitting them as JSON. Useful when you only need flat scalar data and want
+> maximum throughput.
 
 ---
 
@@ -197,6 +209,10 @@ parquet-to-csv/
 | hadoop-common                  | 3.4.1   | API-level only: parquet-hadoop imports Hadoop classes from its signatures  |
 | hadoop-mapreduce-client-core   | 3.4.1   | Same — classes referenced from parquet-hadoop's public API                 |
 | commons-csv                    | 1.12.0  | CSV writing                                                                |
+| jackson-databind               | 2.17.2  | JSON serialization of complex Parquet fields (struct / LIST / MAP)         |
+| zstd-jni                       | 1.5.5-11| ZSTD decompression (default codec for Spark/Iceberg)                       |
+| aircompressor                  | 0.27    | LZ4 decompression (pure Java, used by older Parquet writers)               |
+| snappy-java (transitive)       | 1.1.10  | Snappy decompression — pulled in via hadoop-common                         |
 | slf4j-api                      | 2.0.13  | Logging API                                                                |
 | log4j-over-slf4j               | 2.0.13  | Routes Hadoop/Parquet's log4j calls through SLF4J                          |
 | logback-classic                | 1.5.8   | SLF4J backend                                                              |

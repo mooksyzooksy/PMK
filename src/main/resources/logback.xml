@@ -3,6 +3,10 @@
     <appender name="CONSOLE" class="ch.qos.logback.core.ConsoleAppender">
         <encoder>
             <pattern>%d{HH:mm:ss} [%-5level] %msg%n</pattern>
+            <!-- Without this, logback writes using the JVM's default charset
+                 (Cp1252 on Windows), which mangles the box-drawing and check-mark
+                 icons used in our log banners. -->
+            <charset>UTF-8</charset>
         </encoder>
         <target>System.err</target>
     </appender>

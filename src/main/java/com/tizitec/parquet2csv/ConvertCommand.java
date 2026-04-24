@@ -160,8 +160,13 @@ public class ConvertCommand implements Callable<Integer> {
             try {
                 ConversionResult result = converter.convert(parquetFile);
                 successes.add(result);
-            } catch (Exception e) {
-                log.error("✘ Failed: {} — {}", parquetFile.getFileName(), e.getMessage());
+            } catch (Exception | LinkageError e) {
+                // LinkageError (e.g. NoClassDefFoundError for a missing compression
+                // codec like zstd-jni) would otherwise abort the whole batch.
+                log.error("✘ Failed: {} — {}: {}",
+                        parquetFile.getFileName(),
+                        e.getClass().getSimpleName(),
+                        e.getMessage());
                 log.debug("  Stack trace:", e);
                 failures.add(parquetFile.getFileName().toString());
             }

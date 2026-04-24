@@ -1,0 +1,7 @@
+id,phoneNumbers
+1,
+2,
+3,"{""phone"":null}"
+4,"{""phone"":{""number"":5555555555,""kind"":null}}"
+5,"{""phone"":{""number"":1111111111,""kind"":""home""}}"
+6,"{""phone"":{""number"":1111111111,""kind"":""home""}}"

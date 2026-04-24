@@ -1,0 +1,4 @@
+int64_list,utf8_list
+"[1,2,3]","[""abc"",""efg"",""hij""]"
+"[null,1]",
+[4],"[""efg"",null,""hij"",""xyz""]"

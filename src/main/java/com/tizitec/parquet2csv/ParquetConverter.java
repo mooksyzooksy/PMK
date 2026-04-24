@@ -1,5 +1,17 @@
 package com.tizitec.parquet2csv;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.BooleanNode;
+import com.fasterxml.jackson.databind.node.DoubleNode;
+import com.fasterxml.jackson.databind.node.FloatNode;
+import com.fasterxml.jackson.databind.node.IntNode;
+import com.fasterxml.jackson.databind.node.LongNode;
+import com.fasterxml.jackson.databind.node.NullNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.TextNode;
 import org.apache.commons.csv.CSVFormat;
 import org.apache.commons.csv.CSVPrinter;
 import org.apache.parquet.column.page.PageReadStore;
@@ -10,7 +22,10 @@ import org.apache.parquet.hadoop.metadata.ParquetMetadata;
 import org.apache.parquet.io.ColumnIOFactory;
 import org.apache.parquet.io.MessageColumnIO;
 import org.apache.parquet.io.RecordReader;
+import org.apache.parquet.schema.GroupType;
+import org.apache.parquet.schema.LogicalTypeAnnotation;
 import org.apache.parquet.schema.MessageType;
+import org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName;
 import org.apache.parquet.schema.Type;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -38,11 +53,15 @@ import java.util.List;
  *   <li>Primitive types (int32, int64, float, double, boolean, binary,
  *       fixed_len_byte_array, int96) → typed string via {@code group.getXxx()}
  *       or {@code group.getValueToString()}</li>
- *   <li>Complex types (group/struct, list, map) → Parquet's own
- *       {@code Group.toString()} text representation, quote-escaped for CSV;
- *       or skipped entirely if {@link ConversionConfig#skipComplex()} is
- *       {@code true}</li>
- *   <li>Null / missing fields → configurable null placeholder (default: empty string)</li>
+ *   <li>Complex types → compact JSON, with Parquet's
+ *       {@code LIST}/{@code MAP} schema wrappers unwrapped:
+ *       structs become JSON objects ({@code {"street":"Main","city":"NYC"}}),
+ *       lists become JSON arrays ({@code ["red","blue"]}),
+ *       maps become JSON objects keyed by the Parquet key
+ *       ({@code {"env":"prod"}}). Nested complex types recurse. Serialization
+ *       is skipped entirely when {@link ConversionConfig#skipComplex()} is {@code true}.</li>
+ *   <li>Null / missing fields → configurable null placeholder at top level;
+ *       {@code null} inside JSON structures</li>
  * </ul>
  *
  * <p>Logical types (DATE, TIME, TIMESTAMP, DECIMAL, UUID) are <b>not</b>
@@ -55,6 +74,8 @@ import java.util.List;
 public class ParquetConverter {
 
     private static final Logger log = LoggerFactory.getLogger(ParquetConverter.class);
+
+    private static final ObjectMapper JSON = new ObjectMapper();
 
     private final ConversionConfig config;
 
@@ -216,11 +237,11 @@ public class ParquetConverter {
     }
 
     /**
-     * Serializes a single field value from a {@link Group} row to a String.
+     * Serializes a single field value from a top-level {@link Group} row.
      *
      * <p>Primitive types are read with the appropriate typed accessor.
-     * Complex (group) types are emitted via Parquet's own {@code Group.toString()};
-     * Commons CSV handles quote/delimiter/newline escaping when the cell is written.
+     * Complex (group) types are converted to compact JSON via
+     * {@link #groupToJson(Group, GroupType)}.
      *
      * @param group    the row containing the field
      * @param field    the schema definition of the field
@@ -229,38 +250,169 @@ public class ParquetConverter {
      */
     private String serializeField(Group group, Type field, int fieldIdx) {
         if (field.isPrimitive()) {
-            return serializePrimitive(group, field, fieldIdx);
+            return primitiveToString(group, field, fieldIdx, 0);
         }
-        return group.getGroup(fieldIdx, 0).toString();
+        JsonNode node = groupToJson(group.getGroup(fieldIdx, 0), field.asGroupType());
+        try {
+            return JSON.writeValueAsString(node);
+        } catch (JsonProcessingException e) {
+            // Only reachable via a misconfigured ObjectMapper — we build the tree
+            // ourselves from trusted nodes, so this should not happen in practice.
+            throw new IllegalStateException(
+                    "JSON serialization failed for field '" + field.getName() + "'", e);
+        }
     }
 
     /**
-     * Reads a primitive Parquet field using the appropriate typed accessor.
+     * Reads a primitive Parquet field as a plain string (no JSON quoting).
+     * Used for top-level CSV cells and for Parquet MAP keys.
      *
-     * @param group    the row containing the field
+     * @param group    the row (or nested group) containing the field
      * @param field    the schema field (must be primitive)
-     * @param fieldIdx the integer index of the field within the schema
+     * @param fieldIdx the integer index of the field within its containing group
+     * @param repIdx   the repetition index within the field
      * @return string representation of the primitive value
      */
-    private String serializePrimitive(Group group, Type field, int fieldIdx) {
-        org.apache.parquet.schema.PrimitiveType.PrimitiveTypeName typeName =
-                field.asPrimitiveType().getPrimitiveTypeName();
-
-        // getValueToString() is the universal safe accessor on Group —
-        // it handles all primitive types including INT96 and BINARY correctly.
-        // For well-known types we use typed accessors for cleaner output.
+    private String primitiveToString(Group group, Type field, int fieldIdx, int repIdx) {
+        PrimitiveTypeName typeName = field.asPrimitiveType().getPrimitiveTypeName();
         return switch (typeName) {
-            case INT32   -> String.valueOf(group.getInteger(fieldIdx, 0));
-            case INT64   -> String.valueOf(group.getLong(fieldIdx, 0));
-            case FLOAT   -> String.valueOf(group.getFloat(fieldIdx, 0));
-            case DOUBLE  -> String.valueOf(group.getDouble(fieldIdx, 0));
-            case BOOLEAN -> String.valueOf(group.getBoolean(fieldIdx, 0));
+            case INT32   -> String.valueOf(group.getInteger(fieldIdx, repIdx));
+            case INT64   -> String.valueOf(group.getLong(fieldIdx, repIdx));
+            case FLOAT   -> String.valueOf(group.getFloat(fieldIdx, repIdx));
+            case DOUBLE  -> String.valueOf(group.getDouble(fieldIdx, repIdx));
+            case BOOLEAN -> String.valueOf(group.getBoolean(fieldIdx, repIdx));
             // BINARY covers UTF8 strings, ENUMs, DECIMAL-as-bytes, JSON, BSON
             // FIXED_LEN_BYTE_ARRAY covers fixed decimals, UUIDs
             // INT96 is a legacy 12-byte timestamp (Spark/Hive era)
-            // All three: getValueToString() handles them safely without deprecated APIs
             case BINARY, FIXED_LEN_BYTE_ARRAY, INT96 ->
-                    group.getValueToString(fieldIdx, 0);
+                    group.getValueToString(fieldIdx, repIdx);
+        };
+    }
+
+    // ─── JSON serialization of complex Parquet types ──────────────────────────
+
+    /**
+     * Converts a Parquet {@link Group} to a {@link JsonNode}, unwrapping
+     * the {@code LIST} and {@code MAP} logical-type schema wrappers so the
+     * JSON reflects the user-intended structure, not Parquet's storage shape.
+     *
+     * @param group the group instance to convert
+     * @param type  the schema type (must be a group type)
+     * @return a JsonNode — ArrayNode for LIST, ObjectNode for MAP and struct
+     */
+    private JsonNode groupToJson(Group group, GroupType type) {
+        LogicalTypeAnnotation anno = type.getLogicalTypeAnnotation();
+        if (anno instanceof LogicalTypeAnnotation.ListLogicalTypeAnnotation) {
+            return listToJsonArray(group, type);
+        }
+        if (anno instanceof LogicalTypeAnnotation.MapLogicalTypeAnnotation) {
+            return mapToJsonObject(group, type);
+        }
+        return structToJsonObject(group, type);
+    }
+
+    /**
+     * Unwraps a Parquet LIST group into a JSON array. Handles both the
+     * modern 3-level layout ({@code list.element}) and the legacy 2-level
+     * layout (repeated primitive directly).
+     */
+    private JsonNode listToJsonArray(Group group, GroupType listType) {
+        ArrayNode arr = JSON.createArrayNode();
+        Type repeatedField = listType.getType(0);
+        int  repeatedIdx   = 0;
+        int  reps          = group.getFieldRepetitionCount(repeatedIdx);
+
+        if (repeatedField.isPrimitive()) {
+            // Legacy 2-level LIST: repeated field IS the element
+            for (int i = 0; i < reps; i++) {
+                arr.add(primitiveToJsonNode(group, repeatedField, repeatedIdx, i));
+            }
+            return arr;
+        }
+
+        // Modern 3-level LIST: repeated group wraps a single "element" child
+        GroupType wrapperType = repeatedField.asGroupType();
+        Type      elementType = wrapperType.getType(0);
+        for (int i = 0; i < reps; i++) {
+            Group wrapper = group.getGroup(repeatedIdx, i);
+            if (wrapper.getFieldRepetitionCount(0) == 0) {
+                arr.add(NullNode.getInstance());
+            } else if (elementType.isPrimitive()) {
+                arr.add(primitiveToJsonNode(wrapper, elementType, 0, 0));
+            } else {
+                arr.add(groupToJson(wrapper.getGroup(0, 0), elementType.asGroupType()));
+            }
+        }
+        return arr;
+    }
+
+    /**
+     * Unwraps a Parquet MAP group into a JSON object. The key is stringified
+     * (JSON requires string keys); the value recurses.
+     */
+    private JsonNode mapToJsonObject(Group group, GroupType mapType) {
+        ObjectNode obj = JSON.createObjectNode();
+        int kvIdx = 0;  // the single repeated "key_value" group
+        int reps  = group.getFieldRepetitionCount(kvIdx);
+
+        for (int i = 0; i < reps; i++) {
+            Group     kv         = group.getGroup(kvIdx, i);
+            GroupType kvType     = kv.getType();
+            Type      keyField   = kvType.getType(0);
+            Type      valueField = kvType.getType(1);
+
+            String key = keyField.isPrimitive()
+                    ? primitiveToString(kv, keyField, 0, 0)
+                    : JSON.createObjectNode().toString();  // non-string keys: stable placeholder
+
+            JsonNode valueNode;
+            if (kv.getFieldRepetitionCount(1) == 0) {
+                valueNode = NullNode.getInstance();
+            } else if (valueField.isPrimitive()) {
+                valueNode = primitiveToJsonNode(kv, valueField, 1, 0);
+            } else {
+                valueNode = groupToJson(kv.getGroup(1, 0), valueField.asGroupType());
+            }
+            obj.set(key, valueNode);
+        }
+        return obj;
+    }
+
+    /**
+     * Converts a plain struct group (no LIST/MAP annotation) to a JSON object
+     * with the Parquet field names as keys.
+     */
+    private JsonNode structToJsonObject(Group group, GroupType type) {
+        ObjectNode obj = JSON.createObjectNode();
+        int fieldIdx = 0;
+        for (Type field : type.getFields()) {
+            String fieldName = field.getName();
+            if (group.getFieldRepetitionCount(fieldIdx) == 0) {
+                obj.set(fieldName, NullNode.getInstance());
+            } else if (field.isPrimitive()) {
+                obj.set(fieldName, primitiveToJsonNode(group, field, fieldIdx, 0));
+            } else {
+                obj.set(fieldName, groupToJson(group.getGroup(fieldIdx, 0), field.asGroupType()));
+            }
+            fieldIdx++;
+        }
+        return obj;
+    }
+
+    /**
+     * Reads a primitive Parquet value as a typed JSON node — numbers stay
+     * numeric, booleans stay boolean, everything else becomes a string.
+     */
+    private JsonNode primitiveToJsonNode(Group group, Type field, int fieldIdx, int repIdx) {
+        PrimitiveTypeName typeName = field.asPrimitiveType().getPrimitiveTypeName();
+        return switch (typeName) {
+            case INT32   -> IntNode.valueOf(group.getInteger(fieldIdx, repIdx));
+            case INT64   -> LongNode.valueOf(group.getLong(fieldIdx, repIdx));
+            case FLOAT   -> FloatNode.valueOf(group.getFloat(fieldIdx, repIdx));
+            case DOUBLE  -> DoubleNode.valueOf(group.getDouble(fieldIdx, repIdx));
+            case BOOLEAN -> BooleanNode.valueOf(group.getBoolean(fieldIdx, repIdx));
+            case BINARY, FIXED_LEN_BYTE_ARRAY, INT96 ->
+                    TextNode.valueOf(group.getValueToString(fieldIdx, repIdx));
         };
     }
 

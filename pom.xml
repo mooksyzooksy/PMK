@@ -24,6 +24,9 @@
         <parquet.version>1.14.3</parquet.version>
         <hadoop.version>3.4.1</hadoop.version>
         <commons-csv.version>1.12.0</commons-csv.version>
+        <jackson.version>2.17.2</jackson.version>
+        <zstd-jni.version>1.5.5-11</zstd-jni.version>
+        <aircompressor.version>0.27</aircompressor.version>
         <slf4j.version>2.0.13</slf4j.version>
         <logback.version>1.5.8</logback.version>
 
@@ -80,6 +83,22 @@
             <version>${parquet.version}</version>
         </dependency>
 
+        <!-- Compression codecs for Parquet pages. Snappy comes in transitively
+             via hadoop-common (snappy-java). ZSTD and LZ4 are the other two
+             codecs seen in the wild (Spark/Iceberg default to ZSTD; older files
+             use LZ4). Without these, reading such files fails with
+             NoClassDefFoundError from parquet-hadoop's codec factory. -->
+        <dependency>
+            <groupId>com.github.luben</groupId>
+            <artifactId>zstd-jni</artifactId>
+            <version>${zstd-jni.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>io.airlift</groupId>
+            <artifactId>aircompressor</artifactId>
+            <version>${aircompressor.version}</version>
+        </dependency>
+
         <!-- Hadoop stubs — classes must be loadable, but we exclude
              all of their own transitive deps to keep the JAR lean -->
         <dependency>
@@ -113,6 +132,17 @@
             <groupId>org.apache.commons</groupId>
             <artifactId>commons-csv</artifactId>
             <version>${commons-csv.version}</version>
+        </dependency>
+
+        <!-- ═══════════════════════════════════
+             JSON serialization of complex Parquet fields
+             (separate from parquet-jackson, which is Parquet's internal
+             shaded copy and not meant for application use)
+             ═══════════════════════════════════ -->
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
         </dependency>
 
         <!-- ═══════════════════════════════════
